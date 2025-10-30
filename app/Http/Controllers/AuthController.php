@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
-use App\Models\Usuario;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -83,44 +82,6 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()->delete();
         return response()->json(['message' => 'Logout realizado com sucesso.']);
-    }
-
-    public function redirectToGoogle()
-    {
-        // O método stateless() é crucial para APIs, pois não utiliza sessões.
-        return Socialite::driver('google')->stateless()->redirect();
-    }
-
-    public function handleGoogleCallback()
-    {
-        try {
-            $googleUser = Socialite::driver('google')->stateless()->user();
-
-            // Procura pelo usuário ou cria um novo se não existir
-            // updateOrCreate é perfeito para isso.
-            $user = User::updateOrCreate(
-                ['google_id' => $googleUser->id],
-                [
-                    'name' => $googleUser->name,
-                    'email' => $googleUser->email,
-                    // Usuários sociais não precisam de senha local
-                    'password' => Hash::make(Str::random(24))
-                ]
-            );
-
-            // Cria o token de acesso para o usuário
-            $token = $user->createToken('auth-token')->plainTextToken;
-
-            // Retorna o usuário e o token para o frontend
-            return response()->json([
-                'user' => $user,
-                'token' => $token,
-            ]);
-
-        } catch (\Exception $e) {
-            // Em caso de erro, retorna uma mensagem
-            return response()->json(['error' => 'Não foi possível autenticar com o Google.'], 401);
-        }
     }
 
     public function refreshToken(Request $request)

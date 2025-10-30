@@ -4,9 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Laravel\Sanctum\HasApiTokens;
 
 class ItemCompra extends Model
 {
+    use HasApiTokens;
     protected $fillable =
     [
         'compra_id',

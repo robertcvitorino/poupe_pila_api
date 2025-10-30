@@ -17,12 +17,14 @@ class CompraController extends Controller
     public function lista()
     {
         $compras = Compra::where('usuario_id', Auth::id())
-            ->where('tipo',  TipoEnum::Lista)
-            ->orderBy('created_at', 'desc')
+            ->where('tipo', TipoEnum::Lista)
+            ->with('itens.produto')
+            ->orderBy('data_compra', 'desc')
             ->get();
 
         return CompraResource::collection($compras);
     }
+
     public function carrinho()
     {
         $compras = Compra::where('usuario_id', Auth::id())
@@ -72,16 +74,12 @@ class CompraController extends Controller
                 'tipo' => $validatedData['tipo'],
                 'local' => $validatedData['local'] ?? null,
                 'lista_origem_id' => $validatedData['lista_origem_id'] ?? null,
-                // Definimos o status com base na variável. Um carrinho começa como 'aberto'.
-                'status' => $isCarrinho ? 'aberto' : null,
+                'status' => $isCarrinho ? 'finalizado' : null,
             ]);
 
             $totalCarrinho = 0;
 
             foreach ($validatedData['itens'] as $itemData) {
-                // 2. LÓGICA DE CRIAÇÃO DO ITEM SIMPLIFICADA
-                // A validação já garantiu que 'preco_unitario' existe se for um carrinho.
-                // Usamos '?? null' para segurança caso o campo venha vazio para uma 'lista'.
                 $compra->itens()->create([
                     'produto_id' => $itemData['produto_id'],
                     'quantidade' => $itemData['quantidade'],
@@ -89,7 +87,6 @@ class CompraController extends Controller
                 ]);
 
                 if ($isCarrinho) {
-                    // O cálculo do total só acontece para carrinhos
                     $totalCarrinho += $itemData['preco_unitario'] * $itemData['quantidade'];
                 }
             }
@@ -114,19 +111,85 @@ class CompraController extends Controller
         return new CompraResource($compra->load('itens.produto'));
     }
 
-    // Atualizar uma compra (apenas nome/descrição por simplicidade)
-    public function update(Request $request, Compra $compra)
+//    // Atualizar uma compra (apenas nome/descrição por simplicidade)
+//    public function update(Request $request, Compra $compra)
+//    {
+//        if (Auth::id() !== $compra->usuario_id) {
+//            return response()->json(['error' => 'Não autorizado'], 403);
+//        }
+//        $validatedData = $request->validate([
+//            'nome' => 'sometimes|required|string|max:150',
+//            'descricao' => 'nullable|string',
+//        ]);
+//        $compra->update($validatedData);
+//        return new CompraResource($compra);
+//    }
+    public function update(Request $request, $id)
     {
+        // 2. Buscamos a compra manualmente.
+        // Usamos findOrFail() para que ele retorne 404 automaticamente
+        // se uma compra com esse $id não for encontrada.
+        $compra = Compra::findOrFail($id);
+
+        // 3. Autorização (Exatamente como antes)
         if (Auth::id() !== $compra->usuario_id) {
             return response()->json(['error' => 'Não autorizado'], 403);
         }
+
+        // 4. Validação (Exatamente como antes)
         $validatedData = $request->validate([
             'nome' => 'sometimes|required|string|max:150',
             'descricao' => 'nullable|string',
+            'itens' => 'nullable|array',
+            'itens.*.id' => 'nullable|exists:item_compras,id',
+            'itens.*.produto_id' => 'required|exists:produtos,id',
+            'itens.*.quantidade' => 'required|integer|min:1',
+            'itens.*.preco_unitario' => 'nullable|numeric|min:0',
         ]);
+
+        // 5. Atualização da Compra (Exatamente como antes)
         $compra->update($validatedData);
+
+        // 6. Sincronização de Itens (Lógica corrigida que fizemos antes)
+        if (isset($validatedData['itens'])) {
+            $itensParaUpsert = [];
+            $idsItensExistentesRecebidos = [];
+
+            foreach ($validatedData['itens'] as $itemData) {
+                $itemData['compra_id'] = $compra->id;
+
+                if (isset($itemData['id'])) {
+                    $idsItensExistentesRecebidos[] = $itemData['id'];
+                }
+
+                $itemData['preco_unitario'] = $itemData['preco_unitario'] ?? null;
+
+                $itensParaUpsert[] = $itemData;
+            }
+
+            // Upsert com 'preco_unitario'
+            $compra->itens()->upsert(
+                $itensParaUpsert,
+                ['id'],
+                ['produto_id', 'quantidade', 'preco_unitario']
+            );
+
+            // Lógica de exclusão corrigida
+            if (count($itensParaUpsert) === 0) {
+                $compra->itens()->delete();
+            } else {
+                $compra->itens()
+                    ->whereNotIn('id', $idsItensExistentesRecebidos)
+                    ->delete();
+            }
+        }
+
+        // 7. Resposta (Exatamente como antes)
+        $compra->load('itens');
+
         return new CompraResource($compra);
     }
+
 
     // Excluir uma compra
     public function destroy(Compra $compra)
@@ -134,6 +197,7 @@ class CompraController extends Controller
         if (Auth::id() !== $compra->usuario_id) {
             return response()->json(['error' => 'Não autorizado'], 403);
         }
+
         $compra->delete();
         return response()->noContent();
     }

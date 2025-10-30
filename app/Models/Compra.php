@@ -7,9 +7,11 @@ use App\TipoEnum;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Laravel\Sanctum\HasApiTokens;
 
 class Compra extends Model
 {
+    use HasApiTokens;
     protected $fillable =
     [
         'usuario_id',

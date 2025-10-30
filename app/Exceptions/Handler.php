@@ -30,24 +30,14 @@ class Handler extends ExceptionHandler
     /**
      * Registre callbacks para tratamento de exceções.
      */
-    public function register(): void
-    {
+    public function register(): void{
+           $this->renderable(function (AuthenticationException $e, $request) {
 
-    }
+        return response()->json([
+            'error' => 'unauthenticated',
+            'message' => 'Token inválido ou expirado. Faça login novamente.',
+        ], 401);
+    });
 
-    /**
-     * Lida com requests não autenticadas em APIs RESTful.
-     */
-    protected function unauthenticated($request, AuthenticationException $exception)
-    {
-        // Se a requisição espera JSON (API REST), retorna erro 401 em JSON
-        if ($request->expectsJson()) {
-            return response()->json([
-                'erro' => 'Não autenticado ou token inválido.'
-            ], 401);
-        }
-
-        // Para web (Blade, etc), redireciona normalmente
-        return redirect()->guest(route('login'));
     }
 }
