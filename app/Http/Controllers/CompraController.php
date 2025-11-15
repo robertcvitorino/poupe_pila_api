@@ -8,6 +8,7 @@ use App\Models\Produto;
 use App\StatusEnum;
 use App\TipoEnum;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
@@ -124,72 +125,64 @@ class CompraController extends Controller
 //        $compra->update($validatedData);
 //        return new CompraResource($compra);
 //    }
+
     public function update(Request $request, $id)
     {
-        // 2. Buscamos a compra manualmente.
-        // Usamos findOrFail() para que ele retorne 404 automaticamente
-        // se uma compra com esse $id não for encontrada.
         $compra = Compra::findOrFail($id);
 
-        // 3. Autorização (Exatamente como antes)
         if (Auth::id() !== $compra->usuario_id) {
             return response()->json(['error' => 'Não autorizado'], 403);
         }
 
-        // 4. Validação (Exatamente como antes)
         $validatedData = $request->validate([
             'nome' => 'sometimes|required|string|max:150',
             'descricao' => 'nullable|string',
             'itens' => 'nullable|array',
-            'itens.*.id' => 'nullable|exists:item_compras,id',
-            'itens.*.produto_id' => 'required|exists:produtos,id',
+            'itens.*.produto_id' => [
+                'required',
+                'integer',
+                'exists:produtos,id'
+            ],
             'itens.*.quantidade' => 'required|integer|min:1',
             'itens.*.preco_unitario' => 'nullable|numeric|min:0',
         ]);
 
-        // 5. Atualização da Compra (Exatamente como antes)
-        $compra->update($validatedData);
+        DB::transaction(function () use ($validatedData, $compra) {
+            // Atualiza os dados da compra, sem os itens
+            $compra->update(Arr::except($validatedData, ['itens']));
 
-        // 6. Sincronização de Itens (Lógica corrigida que fizemos antes)
-        if (isset($validatedData['itens'])) {
-            $itensParaUpsert = [];
-            $idsItensExistentesRecebidos = [];
+            if (!empty($validatedData['itens'])) {
+                $itensRecebidos = $validatedData['itens'];
 
-            foreach ($validatedData['itens'] as $itemData) {
-                $itemData['compra_id'] = $compra->id;
+                foreach ($itensRecebidos as $itemData) {
+                    // Verifica se o produto já existe na lista de itens dessa compra
+                    $itemExistente = $compra->itens()
+                        ->where('produto_id', $itemData['produto_id'])
+                        ->first();
 
-                if (isset($itemData['id'])) {
-                    $idsItensExistentesRecebidos[] = $itemData['id'];
+                    if ($itemExistente) {
+                        // Atualiza quantidade e preço
+                        $itemExistente->update([
+                            'quantidade' => $itemData['quantidade'],
+                            'preco_unitario' => $itemData['preco_unitario'] ?? $itemExistente->preco_unitario,
+                        ]);
+                    } else {
+                        // Cria um novo item
+                        $compra->itens()->create([
+                            'produto_id' => $itemData['produto_id'],
+                            'quantidade' => $itemData['quantidade'],
+                            'preco_unitario' => $itemData['preco_unitario'] ?? null,
+                        ]);
+                    }
                 }
-
-                $itemData['preco_unitario'] = $itemData['preco_unitario'] ?? null;
-
-                $itensParaUpsert[] = $itemData;
             }
+        });
 
-            // Upsert com 'preco_unitario'
-            $compra->itens()->upsert(
-                $itensParaUpsert,
-                ['id'],
-                ['produto_id', 'quantidade', 'preco_unitario']
-            );
-
-            // Lógica de exclusão corrigida
-            if (count($itensParaUpsert) === 0) {
-                $compra->itens()->delete();
-            } else {
-                $compra->itens()
-                    ->whereNotIn('id', $idsItensExistentesRecebidos)
-                    ->delete();
-            }
-        }
-
-        // 7. Resposta (Exatamente como antes)
-        $compra->load('itens');
-
-        return new CompraResource($compra);
+        return response()->json([
+            'message' => 'Compra atualizada com sucesso!',
+            'data' => $compra->load('itens'),
+        ]);
     }
-
 
     // Excluir uma compra
     public function destroy(Compra $compra)

@@ -21,8 +21,8 @@ class ProdutoController extends Controller
             return $q->where('nome','like',"%{$params['nome']}%");
         });
 
-        $query->when(array_key_exists('ean',$params), function ($q, $ean) {
-            return $q->where('codigo_barras', $ean);
+        $query->when(array_key_exists('ean',$params), function ($q) use ($params)  {
+            return $q->where('codigo_barras', $params['ean']);
         });
 
         $produtos = $query->paginate(15);
